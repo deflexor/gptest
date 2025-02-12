@@ -4,12 +4,19 @@ use strict;
 use warnings;
 use DBI;
 use Time::Piece;
+use Data::UUID;
 
 # Connect to the database
 my $dbh = DBI->connect(
     "dbi:SQLite:dbname=db.sqlite", "", "",
-    { RaiseError => 1, AutoCommit => 1 }
+    { RaiseError => 1, AutoCommit => 0 }
 ) or die $DBI::errstr;
+
+my $BATCH_SIZE = 1000;
+
+# clear old data
+$dbh->do("DELETE FROM message");
+$dbh->do("DELETE FROM log");
 
 # Prepare SQL statements
 my $message_sth = $dbh->prepare(
@@ -36,47 +43,41 @@ sub parse_log_line {
     my %log_entry = (
         date => '',
         time => '',
-        message_id => '',
+        id => '',
         flag => '',
         email => '',
         additional_info => ''
     );
     
-    # Return empty hash if line is empty
+    # пустая строка - пустой хэш в ответе
     return \%log_entry unless $line;
     
-    # Split line by spaces for initial parsing
+    # разделители - пробелы
     my @parts = split ' ', $line, 6;
     
     # Parse basic fields
     $log_entry{date} = $parts[0] if defined $parts[0];
     $log_entry{time} = $parts[1] if defined $parts[1];
-    $log_entry{message_id} = $parts[2] if defined $parts[2];
+    $log_entry{id} = $parts[2] if defined $parts[2];
     
-    # Check if we have flag and email fields
+    # естть ли флаг и адрес
     if (defined $parts[3] && $parts[3] =~ /^(?:<=|=>|->|\*\*|==)$/) {
         $log_entry{flag} = $parts[3];
         my $email_in_4 = defined($parts[4]) && $parts[4]=~/@/;
         $log_entry{email} = $email_in_4 ? parse_email($parts[4]) : parse_email($parts[5]);
         (undef, $log_entry{additional_info}) = $email_in_4 ? ('', $parts[5]) : split ' ', $parts[5], 2;
     } else {
-        # If no flag, combine remaining parts as additional info
+        # нет флага - только общая информация
         $log_entry{additional_info} = join(" ", grep defined, @parts[3..$#parts]);
     }
     
     return \%log_entry;
 }
 
-
+my $c = 1;
 # Process maillog file
 while (my $line = <>) {
     chomp $line;
-    
-    # Parse timestamp
-    # my $year = '1900';
-    # my ($month, $day, $time, $rest) = $line =~ /^(\w+)\s+(\d+)\s+(\d+:\d+:\d+)\s+(.*)$/;
-    # print "!!! $month, $day, $time\n";
-    # next unless $month && $day && $time && $rest;
     
     # # Create timestamp
     # # my $dt = $parser->parse_datetime("$month $day $time");
@@ -85,41 +86,33 @@ while (my $line = <>) {
     # my $timestamp = $dt->strftime('%Y-%m-%d %H:%M:%S');
 
     my $line_h = parse_log_line($line);
-    use Data::Dumper;
-    warn $line . "\n";
-    warn Dumper($line_h);
-    last;
-    my ($month, $day, $time, $rest) = @$line_h{'date', 'date', 'time', 'message_id'};
-    my $timestamp = $line_h->{'date'} . ' ' . $line_h->{'time'};
-    # Extract internal ID
-    my ($int_id) = $rest =~ /\[([A-F0-9]+)\]/;
-    next unless $int_id;
-    
-    if ($rest =~ /<=/) {
-        # Message arrival - parse for message table
-        my ($id) = $rest =~ /id=([^\s]+)/;
-        next unless $id;
-        
+    my ($date, $time, $id, $flag, $email) = @$line_h{'date', 'time', 'id', 'flag', '$email'};
+    my $int_id = Data::UUID->new->create_hex;
+    my $timestamp = "$date $time";
+    if ($flag eq '<=') {
         $message_sth->execute(
             $timestamp,
             $id,
             $int_id,
-            $rest,
+            $line_h->{'additional_info'},
             1  # status default true
         );
     } else {
-        # Other log entries - parse for log table
-        my ($address) = $rest =~ /to=<([^>]+)>/;
-        
+        #  остальные строки
         $log_sth->execute(
             $timestamp,
             $int_id,
-            $rest,
-            $address
+            $line_h->{'additional_info'},
+            $email
         );
+    }
+    if($c % $BATCH_SIZE == 0) {
+        $dbh->commit;
+        $dbh->begin_work;
     }
 }
 
+$dbh->commit;
 # Clean up
 $message_sth->finish;
 $log_sth->finish;
