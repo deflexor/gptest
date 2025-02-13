@@ -28,24 +28,32 @@ my $app = sub {
     };
     
     if ($address) {
-        my $sql = sub {
-            my ($what) = @_;
-            $what ||= 'm.created, m.int_id, l.str';
-            qq{
-                SELECT $what
+        my $sql = qq{
+            WITH combined_results AS (
+                SELECT m.created, m.int_id, l.str
                 FROM message m
                 JOIN log l ON m.int_id = l.int_id
                 WHERE l.address like ?
                 ORDER BY m.int_id, l.created
-                LIMIT 101
-            };
+            )
+            SELECT COUNT(*) as total_count
+            FROM combined_results
         };
         
-        my $count_sth = $dbh->prepare($sql->('COUNT(*)'));
+        my $count_sth = $dbh->prepare($sql);
         $count_sth->execute("%$address%");
         ($vars->{total_count}) = $count_sth->fetchrow_array();
-
-        my $sth = $dbh->prepare($sql->());
+        
+        $sql = qq{
+            SELECT m.created, m.int_id, l.str
+            FROM message m
+            JOIN log l ON m.int_id = l.int_id
+            WHERE l.address like ?
+            ORDER BY m.int_id, l.created
+            LIMIT 101
+        };
+        
+        my $sth = $dbh->prepare($sql);
         $sth->execute("%$address%");
         
         my @results;
