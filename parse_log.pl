@@ -39,7 +39,7 @@ sub parse_email {
 sub parse_log_line {
     my ($line) = @_;
     
-    # Initialize hash to store parsed data
+    # структура данных для строки лога
     my %log_entry = (
         date => '',
         time => '',
@@ -56,12 +56,12 @@ sub parse_log_line {
     my @parts = split ' ', $line, 6;
     (undef, undef, my $log_str) = split ' ', $line, 3;
     
-    # Parse basic fields
+    # дата и ид
     $log_entry{date} = $parts[0] if defined $parts[0];
     $log_entry{time} = $parts[1] if defined $parts[1];
     $log_entry{id} = $parts[2] if defined $parts[2];
     
-    # естть ли флаг и адрес
+    # есть ли флаг и адрес
     if (defined $parts[3] && $parts[3] =~ /^(?:<=|=>|->|\*\*|==)$/) {
         $log_entry{flag} = $parts[3];
         $log_entry{email} = parse_email($log_str);

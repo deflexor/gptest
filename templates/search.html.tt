@@ -49,7 +49,7 @@
         
         [% IF results %]
             [% IF limit_exceeded %]
-                <p style="color: orange">показаны толькол первые 100 записей.</p>
+                <p style="color: orange">показаны только первые 100 записей.</p>
             [% END %]
             
             [% FOREACH result IN results %]
