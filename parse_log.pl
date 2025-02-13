@@ -20,7 +20,7 @@ $dbh->do("DELETE FROM log");
 
 # Prepare SQL statements
 my $message_sth = $dbh->prepare(
-    "INSERT INTO message (created, id, int_id, str, status) VALUES (?, ?, ?, ?, ?)"
+    "INSERT INTO message (created, id, int_id, str) VALUES (?, ?, ?, ?)"
 );
 
 my $log_sth = $dbh->prepare(
@@ -30,7 +30,7 @@ my $log_sth = $dbh->prepare(
 sub parse_email {
     my ($str) = @_;
     return "" unless $str;
-    if ($str =~ /[<]?([^<>]+)[>]?/) {
+    if ($str =~ /[<]?([^<>@\s]+@[^<>@\s]+)[>]?/) {
         return $1;
     }
     return "";
@@ -54,6 +54,7 @@ sub parse_log_line {
     
     # разделители - пробелы
     my @parts = split ' ', $line, 6;
+    (undef, undef, my $log_str) = split ' ', $line, 3;
     
     # Parse basic fields
     $log_entry{date} = $parts[0] if defined $parts[0];
@@ -63,13 +64,9 @@ sub parse_log_line {
     # естть ли флаг и адрес
     if (defined $parts[3] && $parts[3] =~ /^(?:<=|=>|->|\*\*|==)$/) {
         $log_entry{flag} = $parts[3];
-        my $email_in_4 = defined($parts[4]) && $parts[4]=~/@/;
-        $log_entry{email} = $email_in_4 ? parse_email($parts[4]) : parse_email($parts[5]);
-        (undef, $log_entry{additional_info}) = $email_in_4 ? ('', $parts[5]) : split ' ', $parts[5], 2;
-    } else {
-        # нет флага - только общая информация
-        $log_entry{additional_info} = join(" ", grep defined, @parts[3..$#parts]);
+        $log_entry{email} = parse_email($log_str);
     }
+    $log_entry{additional_info} = $log_str;
     
     return \%log_entry;
 }
@@ -79,14 +76,8 @@ my $c = 1;
 while (my $line = <>) {
     chomp $line;
     
-    # # Create timestamp
-    # # my $dt = $parser->parse_datetime("$month $day $time");
-    # my $dt = Time::Piece->strptime("$month $day $time $year", "%b %d %H:%M:%S %Y");
-    # # $dt->set_year((localtime)[5] + 1900); # Current year
-    # my $timestamp = $dt->strftime('%Y-%m-%d %H:%M:%S');
-
     my $line_h = parse_log_line($line);
-    my ($date, $time, $id, $flag, $email) = @$line_h{'date', 'time', 'id', 'flag', '$email'};
+    my ($date, $time, $id, $flag, $email) = @$line_h{'date', 'time', 'id', 'flag', 'email'};
     my $int_id = Data::UUID->new->create_hex;
     my $timestamp = "$date $time";
     if ($flag eq '<=') {
@@ -94,8 +85,7 @@ while (my $line = <>) {
             $timestamp,
             $id,
             $int_id,
-            $line_h->{'additional_info'},
-            1  # status default true
+            $line_h->{'additional_info'}
         );
     } else {
         #  остальные строки

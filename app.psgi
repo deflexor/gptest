@@ -5,7 +5,6 @@ use Plack::Request;
 use Plack::Builder;
 use DBI;
 use Template;
-#use DateTime::Format::SQLite;
 use Encode qw(decode_utf8 encode_utf8);
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=db.sqlite", "", "", {
@@ -29,27 +28,20 @@ my $app = sub {
     
     if ($address) {
         my $sql = qq{
-            WITH combined_results AS (
-                SELECT m.created, m.int_id, l.str
-                FROM message m
-                JOIN log l ON m.int_id = l.int_id
-                WHERE l.address like ?
-                ORDER BY m.int_id, l.created
-            )
-            SELECT COUNT(*) as total_count
-            FROM combined_results
+            SELECT COUNT(*)
+            FROM log l
+            WHERE l.address like ?
         };
-        
+
         my $count_sth = $dbh->prepare($sql);
         $count_sth->execute("%$address%");
         ($vars->{total_count}) = $count_sth->fetchrow_array();
         
         $sql = qq{
-            SELECT m.created, m.int_id, l.str
-            FROM message m
-            JOIN log l ON m.int_id = l.int_id
+            SELECT l.created, l.int_id, l.str
+            FROM log l
             WHERE l.address like ?
-            ORDER BY m.int_id, l.created
+            ORDER BY l.int_id, l.created
             LIMIT 101
         };
         
@@ -58,8 +50,6 @@ my $app = sub {
         
         my @results;
         while (my $row = $sth->fetchrow_hashref) {
-            # $row->{created} = DateTime::Format::SQLite->parse_datetime($row->{created})
-            #     ->strftime('%Y-%m-%d %H:%M:%S');
             push @results, $row;
         }
         
